@@ -179,6 +179,16 @@
             border: 2px solid white;
             transform: scale(1.1);
         }
+        @media (max-width: 1023px) {
+            body.h-screen { height: auto; min-height: 100dvh; }
+            body > header { flex-wrap: wrap; gap: 12px; padding: 16px; }
+            body > main { overflow: visible; }
+            main > aside { flex-shrink: 0; overflow: visible; padding: 20px 16px; }
+            main > section { flex: none; min-height: 640px; }
+            main > section > div:first-child { position: relative; flex-wrap: wrap; gap: 12px; padding: 16px; }
+            main > section > div:first-child > div:last-child { flex-wrap: wrap; }
+            #api-key-input { font-size: 16px; }
+        }
     </style>
 </head>
 <body class="h-screen flex flex-col">
@@ -204,6 +214,23 @@
         
         <!-- Left Sidebar (Controls) -->
         <aside class="w-full lg:w-[420px] bg-[#0b1120] border-r border-[#1f2937] flex flex-col overflow-y-auto p-6 scrollbar-hide">
+            <details id="api-settings" open class="mb-6 border-b border-[#1f2937] pb-5">
+                <summary class="cursor-pointer text-sm font-semibold">API 키 설정 <span id="api-status" class="text-xs text-slate-400 ml-2">설정 필요</span></summary>
+                <div class="mt-4 space-y-3">
+                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 text-sm text-rose-400 underline"><i class="ph ph-arrow-square-out"></i> Google에서 API 키 발급받기</a>
+                    <label for="api-key-input" class="block text-xs text-slate-300">내 Gemini API 키</label>
+                    <div class="flex gap-2">
+                        <input id="api-key-input" type="password" autocomplete="off" spellcheck="false" placeholder="발급받은 키 붙여넣기" class="min-w-0 flex-1 bg-[#111827] border border-[#374151] rounded-lg p-3 text-sm">
+                        <button id="api-key-visibility" type="button" aria-label="API 키 보기" title="API 키 보기" class="shrink-0 w-11 border border-[#374151] rounded-lg"><i class="ph ph-eye"></i></button>
+                    </div>
+                    <label class="flex items-center gap-2 text-xs text-slate-300"><input id="api-key-remember" type="checkbox"> 이 기기에 키 저장 (개인 기기에서만)</label>
+                    <div class="flex gap-2">
+                        <button id="api-key-save" type="button" class="flex-1 bg-rose-600 hover:bg-rose-700 rounded-lg px-3 py-2 text-sm">키 적용</button>
+                        <button id="api-key-delete" type="button" class="border border-[#374151] rounded-lg px-3 py-2 text-sm">키 삭제</button>
+                    </div>
+                    <p id="api-key-message" role="status" class="text-xs text-slate-400 leading-relaxed">키는 Google AI 요청에 사용됩니다. 사용량과 비용은 본인 Google 프로젝트에 적용됩니다.</p>
+                </div>
+            </details>
             
             <div class="bg-[#111827] rounded-xl p-5 border border-[#1f2937] mb-6 shadow-lg">
                 <div class="flex items-center gap-2 mb-2">
@@ -351,7 +378,66 @@
 
     <script>
         // --- Configuration ---
-        const API_KEY = ""; // Injected by environment
+        let API_KEY = "";
+        const KEY_STORAGE = 'instacard-gemini-key';
+        const keyInput = document.getElementById('api-key-input');
+        const keyRemember = document.getElementById('api-key-remember');
+        const keyMessage = document.getElementById('api-key-message');
+        const keyStatus = document.getElementById('api-status');
+        const keySettings = document.getElementById('api-settings');
+        try {
+            API_KEY = localStorage.getItem(KEY_STORAGE) || '';
+            keyInput.value = API_KEY;
+            keyRemember.checked = Boolean(API_KEY);
+        } catch (_) { /* Storage can be disabled in private browsing. */ }
+        if (API_KEY) {
+            keyStatus.textContent = '설정됨';
+            keySettings.open = false;
+        }
+        function applyApiKey() {
+            const value = keyInput.value.trim();
+            if (!value || /\s/.test(value)) {
+                keyMessage.textContent = 'API 키 전체를 공백 없이 붙여넣어 주세요.';
+                keySettings.open = true;
+                keyInput.focus();
+                return false;
+            }
+            API_KEY = value;
+            let saved = false;
+            try {
+                localStorage.removeItem(KEY_STORAGE);
+                if (keyRemember.checked) {
+                    localStorage.setItem(KEY_STORAGE, value);
+                    saved = true;
+                }
+            } catch (_) {}
+            keyStatus.textContent = '설정됨';
+            keyMessage.textContent = saved ? '이 기기에 저장했습니다. 이제 카드뉴스를 생성하세요.' : '키를 적용했습니다. 이 페이지를 닫으면 다시 입력해야 합니다.';
+            return true;
+        }
+        document.getElementById('api-key-save').addEventListener('click', applyApiKey);
+        document.getElementById('api-key-visibility').addEventListener('click', (event) => {
+            const show = keyInput.type === 'password';
+            keyInput.type = show ? 'text' : 'password';
+            const button = event.currentTarget;
+            button.title = show ? 'API 키 숨기기' : 'API 키 보기';
+            button.setAttribute('aria-label', button.title);
+            button.innerHTML = show ? '<i class="ph ph-eye-slash"></i>' : '<i class="ph ph-eye"></i>';
+        });
+        keyRemember.addEventListener('change', () => {
+            if (!keyRemember.checked) {
+                try { localStorage.removeItem(KEY_STORAGE); } catch (_) {}
+            }
+        });
+        document.getElementById('api-key-delete').addEventListener('click', () => {
+            API_KEY = '';
+            keyInput.value = '';
+            keyInput.type = 'password';
+            keyRemember.checked = false;
+            try { localStorage.removeItem(KEY_STORAGE); } catch (_) {}
+            keyStatus.textContent = '설정 필요';
+            keyMessage.textContent = '키를 삭제했습니다.';
+        });
         const POLLINATIONS_BASE = "https://image.pollinations.ai/prompt/";
 
         // --- State ---
@@ -429,7 +515,7 @@
 
         // --- AI API Call ---
         async function fetchGeminiData() {
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${API_KEY}`;
+            const apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
             const prompt = `
 당신은 전문적인 인스타그램 카드뉴스 기획자입니다.
 주제: "${state.topic}"
@@ -483,11 +569,20 @@ JSON 배열 스키마:
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-goog-api-key': API_KEY },
                 body: JSON.stringify(payload)
             });
 
-            if (!response.ok) throw new Error("API 요청 실패");
+            if (!response.ok) {
+                const messages = {
+                    400: 'API 키나 요청을 확인해 주세요. Google AI Studio에서 유효한 Gemini 키인지 확인하세요.',
+                    401: 'API 키 인증에 실패했습니다. 키를 다시 발급받아 적용해 주세요.',
+                    403: '이 키로 접근할 수 없습니다. Google 프로젝트의 Gemini API 권한과 이용 가능 지역을 확인하세요.',
+                    404: '현재 AI 모델을 이용할 수 없습니다. 잠시 후 다시 시도해 주세요.',
+                    429: '사용량 한도에 도달했습니다. 잠시 기다리거나 Google AI Studio에서 한도를 확인하세요.'
+                };
+                throw new Error(messages[response.status] || 'Google AI 응답에 문제가 있습니다. 잠시 후 다시 시도해 주세요.');
+            }
             const result = await response.json();
             
             if (result.candidates && result.candidates[0].content.parts[0].text) {
@@ -771,6 +866,9 @@ JSON 배열 스키마:
 
         // Generate Main Flow
         els.generateBtn.addEventListener('click', async () => {
+            if (!API_KEY || keyInput.value.trim() !== API_KEY) {
+                if (!applyApiKey()) return;
+            }
             const topic = els.topicInput.value.trim();
             if(!topic) {
                 alert("주제를 입력해주세요.");
@@ -800,8 +898,7 @@ JSON 배열 스키마:
                 updateUIControls();
 
             } catch (err) {
-                console.error(err);
-                els.errorMsg.innerText = "생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+                els.errorMsg.innerText = err.message || '생성 중 오류가 발생했습니다. 다시 시도해주세요.';
                 els.errorMsg.classList.remove('hidden');
                 els.loadingState.classList.add('hidden');
                 if(state.cards.length === 0) {
