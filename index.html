@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InstaCard AI - 카드뉴스 제너레이터</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #0b1120; /* Deep dark navy */
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        /* Custom Range Slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #f43f5e; /* Rose 500 */
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(244, 63, 94, 0.5);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #334155;
+            border-radius: 2px;
+        }
+        
+        /* Carousel Styles */
+        .carousel-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            perspective: 1000px;
+        }
+        .carousel-track {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+            transform-style: preserve-3d;
+        }
+        .carousel-item {
+            position: absolute;
+            transition: all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+            width: 320px; /* Base width for preview */
+            aspect-ratio: 4 / 5;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            transform: scale(0.8) translateX(0);
+            pointer-events: none;
+        }
+        .carousel-item.active {
+            opacity: 1;
+            transform: scale(1) translateX(0) translateZ(50px);
+            z-index: 10;
+            pointer-events: auto;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.8);
+        }
+        .carousel-item.prev {
+            opacity: 0.6;
+            transform: scale(0.85) translateX(-110%) translateZ(0);
+            z-index: 5;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+        .carousel-item.next {
+            opacity: 0.6;
+            transform: scale(0.85) translateX(110%) translateZ(0);
+            z-index: 5;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        /* Card Content Styling */
+        .card-bg-wrapper {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+        }
+        .card-bg-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .card-overlay {
+            position: absolute;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.6); /* Default, overridden by JS */
+            z-index: 2;
+            transition: background-color 0.3s ease;
+        }
+        .card-content {
+            position: relative;
+            z-index: 3;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 2rem;
+            color: white;
+            text-align: center;
+            word-break: keep-all;
+        }
+
+        /* Loader */
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #f43f5e;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Hidden export container */
+        #export-container {
+            position: absolute;
+            top: -9999px;
+            left: -9999px;
+        }
+        
+        /* High-res Export Card Base (1080x1350) */
+        .export-card {
+            position: relative;
+            width: 1080px;
+            height: 1350px;
+            overflow: hidden;
+            background-color: #0f172a; /* fallback */
+        }
+        .export-card-content {
+            position: relative;
+            z-index: 3;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 6rem 5rem;
+            color: white;
+            text-align: center;
+            word-break: keep-all;
+        }
+        
+        .toggle-btn.active {
+            background-color: rgba(244, 63, 94, 0.15);
+            border-color: #f43f5e;
+            color: #f43f5e;
+        }
+        .color-swatch.active {
+            border: 2px solid white;
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="flex items-center justify-between px-6 py-4 bg-[#111827] border-b border-[#1f2937]">
+        <div class="flex items-center gap-3">
+            <div class="bg-gradient-to-tr from-pink-500 to-orange-400 p-2 rounded-xl">
+                <i class="ph ph-instagram-logo text-2xl text-white"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold text-white tracking-wide">InstaCard AI</h1>
+                <p class="text-xs text-slate-400">이미지 키워드 자동 추출 & 배경 카드뉴스 제너레이터</p>
+            </div>
+        </div>
+        <button class="flex items-center gap-2 bg-[#1f2937] hover:bg-[#374151] px-4 py-2 rounded-lg text-sm font-medium transition">
+            <i class="ph ph-squares-four"></i> 전체 모아보기
+        </button>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        
+        <!-- Left Sidebar (Controls) -->
+        <aside class="w-full lg:w-[420px] bg-[#0b1120] border-r border-[#1f2937] flex flex-col overflow-y-auto p-6 scrollbar-hide">
+            
+            <div class="bg-[#111827] rounded-xl p-5 border border-[#1f2937] mb-6 shadow-lg">
+                <div class="flex items-center gap-2 mb-2">
+                    <i class="ph-fill ph-magic-wand text-rose-500"></i>
+                    <h2 class="text-base font-bold">카드뉴스 주제 및 AI 생성</h2>
+                </div>
+                <p class="text-xs text-slate-400 mb-4 leading-relaxed">주제를 입력하면 AI가 내용과 <strong>*슬라이드별 이미지 키워드*</strong>를 자동으로 생성합니다.</p>
+                
+                <label class="block text-xs font-semibold text-slate-300 mb-2">카드뉴스 주제 / 키워드</label>
+                <textarea id="topic-input" rows="3" class="w-full bg-[#0b1120] border border-[#1f2937] rounded-lg p-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 resize-none transition" placeholder="예: 직장인을 위한 스트레스 해소법 5가지, 2026년 인공지능 트렌드 요약..."></textarea>
+                
+                <!-- Suggestions -->
+                <div class="flex flex-wrap gap-2 mt-3">
+                    <button class="topic-chip px-3 py-1.5 bg-[#1f2937] hover:bg-[#374151] rounded-full text-xs text-slate-300 transition flex items-center gap-1">
+                        💡 스트레스 해소법
+                    </button>
+                    <button class="topic-chip px-3 py-1.5 bg-[#1f2937] hover:bg-[#374151] rounded-full text-xs text-slate-300 transition flex items-center gap-1">
+                        🚀 AI 트렌드 2026
+                    </button>
+                    <button class="topic-chip px-3 py-1.5 bg-[#1f2937] hover:bg-[#374151] rounded-full text-xs text-slate-300 transition flex items-center gap-1">
+                        ☕ 카페 창업 가이드
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-6 px-1">
+                <!-- Card Count -->
+                <div>
+                    <div class="flex justify-between items-center mb-3">
+                        <label class="text-sm font-semibold">생성할 카드 개수</label>
+                        <span id="count-display" class="text-rose-500 font-bold text-sm">5장</span>
+                    </div>
+                    <input type="range" id="count-slider" min="5" max="10" value="5">
+                    <div class="flex justify-between text-[10px] text-slate-500 mt-2 px-1">
+                        <span>5장</span><span>6장</span><span>7장</span><span>8장</span><span>9장</span><span>10장</span>
+                    </div>
+                </div>
+                
+                <hr class="border-[#1f2937]">
+
+                <!-- Background Mode -->
+                <div>
+                    <label class="text-sm font-semibold mb-3 block">배경 모드 및 스타일</label>
+                    <div class="flex gap-2">
+                        <button id="mode-ai" class="toggle-btn active flex-1 py-2.5 px-2 rounded-lg border border-[#1f2937] bg-[#111827] text-xs font-medium transition flex items-center justify-center gap-2">
+                            <i class="ph-fill ph-image"></i> AI 키워드 이미지
+                        </button>
+                        <button id="mode-solid" class="toggle-btn flex-1 py-2.5 px-2 rounded-lg border border-[#1f2937] bg-[#111827] text-xs font-medium text-slate-400 transition flex items-center justify-center gap-2">
+                            <i class="ph-fill ph-paint-bucket"></i> 단색 배경
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Dimming Slider -->
+                <div>
+                    <div class="flex justify-between items-center mb-3">
+                        <label class="text-sm font-semibold">배경 어둡기 (가독성 조절)</label>
+                        <span id="dimming-display" class="text-rose-500 font-bold text-xs">60%</span>
+                    </div>
+                    <input type="range" id="dimming-slider" min="0" max="100" value="60">
+                </div>
+
+                <!-- Theme / Color Selection -->
+                <div id="color-selection-container">
+                    <div class="flex justify-between items-center mb-3">
+                        <label class="text-sm font-semibold">테마/배경색 선택</label>
+                        <span id="color-hex-display" class="text-slate-400 text-xs font-mono">#0f172a</span>
+                    </div>
+                    <div class="flex gap-3">
+                        <!-- Swatches -->
+                        <button class="color-swatch w-6 h-6 rounded-full bg-[#0f172a] active border border-transparent transition" data-color="#0f172a"></button>
+                        <button class="color-swatch w-6 h-6 rounded-full bg-[#1e1b4b] border border-transparent transition" data-color="#1e1b4b"></button>
+                        <button class="color-swatch w-6 h-6 rounded-full bg-[#064e3b] border border-transparent transition" data-color="#064e3b"></button>
+                        <button class="color-swatch w-6 h-6 rounded-full bg-[#7f1d1d] border border-transparent transition" data-color="#7f1d1d"></button>
+                        <button class="color-swatch w-6 h-6 rounded-full bg-[#3b0764] border border-transparent transition" data-color="#3b0764"></button>
+                        <button class="color-swatch w-6 h-6 rounded-full bg-[#f8fafc] border border-transparent transition" data-color="#f8fafc"></button>
+                        <button class="color-swatch w-6 h-6 rounded-full bg-[#fef08a] border border-transparent transition" data-color="#fef08a"></button>
+                    </div>
+                </div>
+                
+                <hr class="border-[#1f2937]">
+                
+                <button id="generate-btn" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3.5 px-4 rounded-xl transition shadow-[0_0_15px_rgba(244,63,94,0.3)] flex justify-center items-center gap-2 mt-2">
+                    <i class="ph-bold ph-magic-wand"></i> <span>카드뉴스 AI 생성하기</span>
+                </button>
+                
+                <div id="error-msg" class="hidden text-rose-500 text-xs text-center mt-2 font-medium"></div>
+
+            </div>
+        </aside>
+
+        <!-- Right Preview Area -->
+        <section class="flex-1 bg-[#0f172a] relative flex flex-col">
+            
+            <!-- Preview Top Bar -->
+            <div class="absolute top-0 left-0 right-0 p-6 flex justify-between items-center z-20">
+                <div class="flex items-center gap-3">
+                    <span class="text-sm font-bold tracking-widest text-slate-400">PREVIEW</span>
+                    <span id="preview-counter" class="bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full text-xs font-bold">1 / 5</span>
+                </div>
+                <div class="flex gap-2">
+                    <button id="btn-dl-current" class="flex items-center gap-2 bg-[#1e293b] hover:bg-[#334155] border border-[#334155] text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+                        <i class="ph-bold ph-download-simple"></i> 현재 카드 PNG
+                    </button>
+                    <button id="btn-dl-all" class="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-lg shadow-rose-500/20">
+                        <i class="ph-bold ph-file-zip"></i> 전체 ZIP 다운로드
+                    </button>
+                </div>
+            </div>
+
+            <!-- Empty State -->
+            <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center text-slate-500 z-10">
+                <i class="ph-thin ph-images text-6xl mb-4 opacity-50"></i>
+                <p class="text-sm">좌측 패널에서 주제를 입력하고 생성해주세요.</p>
+            </div>
+            
+            <!-- Loading State -->
+            <div id="loading-state" class="absolute inset-0 flex flex-col items-center justify-center bg-[#0f172a]/80 backdrop-blur-sm z-30 hidden">
+                <div class="spinner mb-4"></div>
+                <p class="text-sm text-slate-300 font-medium animate-pulse" id="loading-text">AI가 내용과 이미지를 생성하고 있습니다...</p>
+            </div>
+
+            <!-- Carousel Area -->
+            <div class="carousel-container" id="carousel-area" style="opacity: 0;">
+                <div class="carousel-track" id="carousel-track">
+                    <!-- Cards injected via JS -->
+                </div>
+            </div>
+
+            <!-- Bottom Keyword Info (Active Card) -->
+            <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-[#111827]/90 backdrop-blur border border-[#1f2937] rounded-full px-4 py-2 flex items-center gap-3 z-20 transition-opacity duration-300" id="keyword-bar" style="opacity: 0; pointer-events: none;">
+                <i class="ph-fill ph-tag text-rose-500"></i>
+                <span class="text-xs text-slate-400">현재 카드 키워드:</span>
+                <span id="current-keyword" class="text-xs font-mono text-white max-w-[200px] truncate">...</span>
+                <button id="btn-regen-img" class="ml-2 flex items-center gap-1 bg-[#1f2937] hover:bg-[#374151] px-2 py-1 rounded text-[10px] text-slate-300 transition">
+                    <i class="ph-bold ph-arrows-clockwise"></i> 이미지 재생성
+                </button>
+            </div>
+
+        </section>
+    </main>
+
+    <!-- Hidden Export Container -->
+    <div id="export-container"></div>
+
+    <script>
+        // --- Configuration ---
+        const API_KEY = ""; // Injected by environment
+        const POLLINATIONS_BASE = "https://image.pollinations.ai/prompt/";
+
+        // --- State ---
+        const state = {
+            topic: "",
+            count: 5,
+            bgMode: 'ai', // 'ai' or 'solid'
+            dimming: 60, // 0-100
+            themeColor: '#0f172a', // hex
+            cards: [],
+            currentIndex: 0
+        };
+
+        // --- DOM Elements ---
+        const els = {
+            topicInput: document.getElementById('topic-input'),
+            topicChips: document.querySelectorAll('.topic-chip'),
+            countSlider: document.getElementById('count-slider'),
+            countDisplay: document.getElementById('count-display'),
+            modeAiBtn: document.getElementById('mode-ai'),
+            modeSolidBtn: document.getElementById('mode-solid'),
+            dimmingSlider: document.getElementById('dimming-slider'),
+            dimmingDisplay: document.getElementById('dimming-display'),
+            swatches: document.querySelectorAll('.color-swatch'),
+            colorHexDisplay: document.getElementById('color-hex-display'),
+            generateBtn: document.getElementById('generate-btn'),
+            errorMsg: document.getElementById('error-msg'),
+            
+            emptyState: document.getElementById('empty-state'),
+            loadingState: document.getElementById('loading-state'),
+            loadingText: document.getElementById('loading-text'),
+            carouselArea: document.getElementById('carousel-area'),
+            carouselTrack: document.getElementById('carousel-track'),
+            previewCounter: document.getElementById('preview-counter'),
+            
+            keywordBar: document.getElementById('keyword-bar'),
+            currentKeyword: document.getElementById('current-keyword'),
+            btnRegenImg: document.getElementById('btn-regen-img'),
+            
+            btnDlCurrent: document.getElementById('btn-dl-current'),
+            btnDlAll: document.getElementById('btn-dl-all'),
+            exportContainer: document.getElementById('export-container')
+        };
+
+        // --- Helper: UI Updates based on state ---
+        function updateUIControls() {
+            // Background Mode Toggles
+            if(state.bgMode === 'ai') {
+                els.modeAiBtn.classList.add('active', 'text-rose-500');
+                els.modeAiBtn.classList.remove('text-slate-400');
+                els.modeSolidBtn.classList.remove('active', 'text-rose-500');
+                els.modeSolidBtn.classList.add('text-slate-400');
+            } else {
+                els.modeSolidBtn.classList.add('active', 'text-rose-500');
+                els.modeSolidBtn.classList.remove('text-slate-400');
+                els.modeAiBtn.classList.remove('active', 'text-rose-500');
+                els.modeAiBtn.classList.add('text-slate-400');
+            }
+            // Opacity & Keyword Bar Visibility
+            if(state.cards.length > 0) {
+                els.keywordBar.style.opacity = state.bgMode === 'ai' ? '1' : '0';
+                els.keywordBar.style.pointerEvents = state.bgMode === 'ai' ? 'auto' : 'none';
+            }
+        }
+
+        function getTextColorForBg(hexColor) {
+            // Simple brightness check for solid backgrounds
+            const hex = hexColor.replace('#', '');
+            const r = parseInt(hex.substr(0, 2), 16);
+            const g = parseInt(hex.substr(2, 2), 16);
+            const b = parseInt(hex.substr(4, 2), 16);
+            const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+            return (yiq >= 128) ? '#0f172a' : '#ffffff';
+        }
+
+        // --- AI API Call ---
+        async function fetchGeminiData() {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${API_KEY}`;
+            const prompt = `
+당신은 전문적인 인스타그램 카드뉴스 기획자입니다.
+주제: "${state.topic}"
+생성할 카드 수: 정확히 ${state.count}장
+
+요구사항:
+1. 각 카드의 내용을 인스타그램 피드에 맞게 간결하고 후킹하게 작성하세요.
+2. **(매우 중요) 표지(cover), 본문(body), 결론(outro)을 포함한 모든 장(각 카드)마다** 배경 이미지로 쓸 수 있는 고유한 영문 키워드(image_keyword)를 반드시 생성하세요. 키워드를 절대 비워두지 마세요.
+   - 예: "cinematic lighting, modern office desk, high quality, dark aesthetic"
+3. 반드시 아래 JSON 스키마 구조에 맞는 배열 형태로만 응답하세요.
+
+JSON 배열 스키마:
+[
+  {
+    "type": "cover",
+    "title": "눈길을 끄는 메인 타이틀",
+    "content": "서브 타이틀 또는 후킹 문장",
+    "footer": "카드 종류 식별 텍스트 (예: '기획 노하우', 'STEP 1')",
+    "image_keyword": "english image prompt for cover..."
+  },
+  {
+    "type": "body",
+    "title": "본문 타이틀",
+    "content": "본문 핵심 내용",
+    "footer": "STEP 1",
+    "image_keyword": "english image prompt for body step 1..."
+  }
+  // ... 위와 동일한 구조로 총 ${state.count}장의 객체를 배열에 꽉 채워서 반환하세요.
+]
+`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "ARRAY",
+                        items: {
+                            type: "OBJECT",
+                            properties: {
+                                type: { type: "STRING" },
+                                title: { type: "STRING" },
+                                content: { type: "STRING" },
+                                footer: { type: "STRING" },
+                                image_keyword: { type: "STRING" }
+                            },
+                            required: ["type", "title", "content", "footer", "image_keyword"]
+                        }
+                    }
+                }
+            };
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) throw new Error("API 요청 실패");
+            const result = await response.json();
+            
+            if (result.candidates && result.candidates[0].content.parts[0].text) {
+                let data = JSON.parse(result.candidates[0].content.parts[0].text);
+                // Force seed for random pollinations variations later if needed, but standard keyword is fine
+                return data.slice(0, state.count); 
+            } else {
+                throw new Error("응답 형식 오류");
+            }
+        }
+
+        // --- Render Logic ---
+        function generateCardHTML(card, index, isExport = false) {
+            // Determine styles based on context
+            const baseClass = isExport ? 'export-card' : 'carousel-item';
+            
+            // Background Layer
+            const kw = card.image_keyword || 'minimalist abstract background, highly detailed';
+            const imgUrl = `${POLLINATIONS_BASE}${encodeURIComponent(kw)}?width=${isExport?1080:800}&height=${isExport?1350:1000}&nologo=true&seed=${card.seed || 42}`;
+            const bgLayer = `
+                <div class="card-bg-wrapper" style="background-color: ${state.themeColor};">
+                    <img class="card-bg-img" src="${imgUrl}" crossorigin="anonymous" style="display: ${state.bgMode === 'ai' ? 'block' : 'none'};" alt="background">
+                </div>
+            `;
+            
+            // Overlay Layer
+            const overlayAlpha = state.bgMode === 'ai' ? (state.dimming / 100) : 0; // Solid colors don't need black dimming usually, but keep simple
+            const finalOverlayAlpha = state.bgMode === 'solid' ? 0 : overlayAlpha;
+            const overlayLayer = `<div class="card-overlay" style="background-color: rgba(0,0,0,${finalOverlayAlpha});"></div>`;
+            
+            // Text Color (Force white for AI images due to dimming, adaptive for solid)
+            const textColor = state.bgMode === 'ai' ? '#ffffff' : getTextColorForBg(state.themeColor);
+            const secondaryColor = state.bgMode === 'ai' ? 'rgba(255,255,255,0.7)' : (textColor === '#ffffff' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)');
+
+            // Typography sizing
+            const titleSize = isExport ? (card.type === 'cover' ? '6rem' : '4.5rem') : (card.type === 'cover' ? '2.25rem' : '1.75rem');
+            const titleWeight = card.type === 'cover' ? '900' : '700';
+            const titleMb = isExport ? '3rem' : '1.5rem';
+            
+            const contentSize = isExport ? '2.5rem' : '1rem';
+            const contentLineHeight = '1.6';
+            const contentMb = isExport ? '3rem' : '1.5rem';
+
+            const headerSize = isExport ? '2rem' : '0.75rem';
+            const paddingEx = isExport ? '6rem' : '2rem';
+
+            const contentWrapper = isExport ? 'export-card-content' : 'card-content';
+
+            // Top bar (Footer text + pagination)
+            const topBarHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; border-bottom: ${isExport?'2px':'1px'} solid ${secondaryColor}; padding-bottom: ${isExport?'2rem':'1rem'}; margin-bottom: auto; font-size: ${headerSize}; font-weight: 700; color: ${textColor}; opacity: 0.9;">
+                    <span style="background: rgba(255,255,255,0.1); padding: ${isExport?'0.5rem 1.5rem':'0.2rem 0.6rem'}; border-radius: 20px;">${card.footer}</span>
+                    <span>${index + 1} / ${state.cards.length}</span>
+                </div>
+            `;
+
+            // Bottom brand
+            const bottomBarHTML = `
+                <div style="margin-top: auto; display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: ${headerSize}; font-weight: 500; color: ${secondaryColor};">
+                    <span style="display: flex; items-center; gap: 8px;"><i class="ph-bold ph-instagram-logo"></i> InstaCard AI</span>
+                    <span>Swipe &rarr;</span>
+                </div>
+            `;
+
+            const centerAlign = card.type === 'cover' ? 'center' : 'flex-start';
+            const textAlign = card.type === 'cover' ? 'center' : 'left';
+
+            const centerHTML = `
+                <div style="flex: 1; display: flex; flex-direction: column; justify-content: ${centerAlign}; text-align: ${textAlign}; width: 100%; padding-top: ${isExport?'4rem':'1.5rem'}; padding-bottom: ${isExport?'4rem':'1.5rem'};">
+                    ${card.type === 'cover' && !isExport ? `<div style="display: flex; justify-content: center; margin-bottom: 2rem;"><div style="background: rgba(255,255,255,0.2); backdrop-filter: blur(4px); padding: 1rem; border-radius: 50%;"><i class="ph-fill ph-fire" style="font-size: 2rem; color: #fff;"></i></div></div>` : ''}
+                    ${card.type === 'cover' && isExport ? `<div style="display: flex; justify-content: center; margin-bottom: 4rem;"><div style="background: rgba(255,255,255,0.2); padding: 3rem; border-radius: 50%;"><svg width="100" height="100" viewBox="0 0 256 256" fill="white"><path d="M239.88,143.25,183.1,192a8,8,0,0,1-10.4-12.16l45.41-38.9-45.41-38.89a8,8,0,0,1,10.4-12.16l56.78,48.71a8,8,0,0,1,0,12.16ZM128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z"></path></svg></div></div>` : ''}
+                    <h1 style="font-size: ${titleSize}; font-weight: ${titleWeight}; margin-bottom: ${titleMb}; line-height: 1.3; color: ${textColor}; word-break: keep-all; letter-spacing: -0.02em;">${card.title}</h1>
+                    <p style="font-size: ${contentSize}; line-height: ${contentLineHeight}; color: ${secondaryColor}; font-weight: 500; word-break: keep-all;">${card.content}</p>
+                </div>
+            `;
+
+            return `
+                <div class="${baseClass}" id="${isExport ? 'export-card-'+index : 'card-'+index}" data-index="${index}">
+                    ${bgLayer}
+                    ${overlayLayer}
+                    <div class="${contentWrapper}">
+                        ${topBarHTML}
+                        ${centerHTML}
+                        ${bottomBarHTML}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderCarousel() {
+            els.carouselTrack.innerHTML = '';
+            state.cards.forEach((card, i) => {
+                els.carouselTrack.insertAdjacentHTML('beforeend', generateCardHTML(card, i, false));
+            });
+            updateCarouselPosition();
+            updateExportContainer(); // keep export DOM synced
+        }
+
+        function updateExportContainer() {
+            els.exportContainer.innerHTML = '';
+            state.cards.forEach((card, i) => {
+                els.exportContainer.insertAdjacentHTML('beforeend', generateCardHTML(card, i, true));
+            });
+        }
+
+        function updateCardStylesOnly() {
+            // Optimised update for sliders/toggles without recreating DOM
+            state.cards.forEach((card, i) => {
+                const preCard = document.getElementById(`card-${i}`);
+                const expCard = document.getElementById(`export-card-${i}`);
+                if(!preCard || !expCard) return;
+
+                const bgWrapperPre = preCard.querySelector('.card-bg-wrapper');
+                const bgWrapperExp = expCard.querySelector('.card-bg-wrapper');
+                const bgImgPre = preCard.querySelector('.card-bg-img');
+                const bgImgExp = expCard.querySelector('.card-bg-img');
+                
+                const overlayPre = preCard.querySelector('.card-overlay');
+                const overlayExp = expCard.querySelector('.card-overlay');
+                const contentPre = preCard.querySelector('.card-content');
+                const contentExp = expCard.querySelector('.export-card-content');
+
+                // Update Wrappers
+                bgWrapperPre.style.backgroundColor = state.themeColor;
+                bgWrapperExp.style.backgroundColor = state.themeColor;
+
+                if (state.bgMode === 'ai') {
+                    const kw = card.image_keyword || 'minimalist abstract background, highly detailed';
+                    const imgUrl = `${POLLINATIONS_BASE}${encodeURIComponent(kw)}?width=800&height=1000&nologo=true&seed=${card.seed||42}`;
+                    const imgUrlExp = `${POLLINATIONS_BASE}${encodeURIComponent(kw)}?width=1080&height=1350&nologo=true&seed=${card.seed||42}`;
+                    
+                    bgImgPre.src = imgUrl;
+                    bgImgExp.src = imgUrlExp;
+                    bgImgPre.style.display = 'block';
+                    bgImgExp.style.display = 'block';
+                    
+                    const alpha = state.dimming / 100;
+                    overlayPre.style.backgroundColor = `rgba(0,0,0,${alpha})`;
+                    overlayExp.style.backgroundColor = `rgba(0,0,0,${alpha})`;
+
+                    // Force white text
+                    const textsPre = contentPre.querySelectorAll('h1, span, p, i, div');
+                    textsPre.forEach(el => {
+                        if(el.tagName==='H1' || (el.tagName==='SPAN' && !el.parentElement.style.color)) el.style.color = '#ffffff';
+                        if(el.tagName==='P') el.style.color = 'rgba(255,255,255,0.7)';
+                    });
+                    const textsExp = contentExp.querySelectorAll('h1, span, p, i, div');
+                    textsExp.forEach(el => {
+                        if(el.tagName==='H1' || (el.tagName==='SPAN' && !el.parentElement.style.color)) el.style.color = '#ffffff';
+                        if(el.tagName==='P') el.style.color = 'rgba(255,255,255,0.7)';
+                    });
+
+                } else {
+                    bgImgPre.style.display = 'none';
+                    bgImgExp.style.display = 'none';
+                    
+                    overlayPre.style.backgroundColor = 'rgba(0,0,0,0)';
+                    overlayExp.style.backgroundColor = 'rgba(0,0,0,0)';
+
+                    // Adaptive text color
+                    const txtColor = getTextColorForBg(state.themeColor);
+                    const secColor = txtColor === '#ffffff' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)';
+                    
+                    const textsPre = contentPre.querySelectorAll('h1, p');
+                    textsPre.forEach(el => {
+                        if(el.tagName==='H1') el.style.color = txtColor;
+                        if(el.tagName==='P') el.style.color = secColor;
+                    });
+                    const topsPre = contentPre.children[0];
+                    if(topsPre) topsPre.style.color = txtColor;
+                    const botsPre = contentPre.children[2];
+                    if(botsPre) botsPre.style.color = secColor;
+
+                    const textsExp = contentExp.querySelectorAll('h1, p');
+                    textsExp.forEach(el => {
+                        if(el.tagName==='H1') el.style.color = txtColor;
+                        if(el.tagName==='P') el.style.color = secColor;
+                    });
+                    const topsExp = contentExp.children[0];
+                    if(topsExp) topsExp.style.color = txtColor;
+                    const botsExp = contentExp.children[2];
+                    if(botsExp) botsExp.style.color = secColor;
+                }
+            });
+            updateUIControls();
+        }
+
+        function updateCarouselPosition() {
+            const items = document.querySelectorAll('.carousel-item');
+            if(items.length === 0) return;
+
+            items.forEach((item, index) => {
+                item.className = 'carousel-item'; // Reset classes
+                if (index === state.currentIndex) {
+                    item.classList.add('active');
+                } else if (index === state.currentIndex - 1) {
+                    item.classList.add('prev');
+                } else if (index === state.currentIndex + 1) {
+                    item.classList.add('next');
+                }
+            });
+
+            els.previewCounter.innerText = `${state.currentIndex + 1} / ${state.cards.length}`;
+            
+            // Update Keyword Bar
+            const activeCard = state.cards[state.currentIndex];
+            if(activeCard) {
+                els.currentKeyword.innerText = activeCard.image_keyword || '기본 배경(fallback)';
+            }
+        }
+
+        // Handle clicks on prev/next cards to navigate
+        els.carouselTrack.addEventListener('click', (e) => {
+            const item = e.target.closest('.carousel-item');
+            if(!item) return;
+            if(item.classList.contains('prev') && state.currentIndex > 0) {
+                state.currentIndex--;
+                updateCarouselPosition();
+            } else if (item.classList.contains('next') && state.currentIndex < state.cards.length - 1) {
+                state.currentIndex++;
+                updateCarouselPosition();
+            }
+        });
+
+        // --- Event Listeners ---
+        
+        // Setup initial UI mapping
+        els.topicChips.forEach(chip => {
+            chip.addEventListener('click', () => {
+                els.topicInput.value = chip.innerText.replace(/[^\s]*\s/, ''); // Remove emoji
+            });
+        });
+
+        els.countSlider.addEventListener('input', (e) => {
+            state.count = parseInt(e.target.value);
+            els.countDisplay.innerText = `${state.count}장`;
+        });
+
+        els.dimmingSlider.addEventListener('input', (e) => {
+            state.dimming = parseInt(e.target.value);
+            els.dimmingDisplay.innerText = `${state.dimming}%`;
+            if(state.cards.length > 0) updateCardStylesOnly();
+        });
+
+        els.modeAiBtn.addEventListener('click', () => {
+            state.bgMode = 'ai';
+            if(state.cards.length > 0) updateCardStylesOnly();
+            else updateUIControls();
+        });
+
+        els.modeSolidBtn.addEventListener('click', () => {
+            state.bgMode = 'solid';
+            if(state.cards.length > 0) updateCardStylesOnly();
+            else updateUIControls();
+        });
+
+        els.swatches.forEach(swatch => {
+            swatch.addEventListener('click', (e) => {
+                // Update UI selection
+                els.swatches.forEach(s => s.classList.remove('active'));
+                swatch.classList.add('active');
+                
+                state.themeColor = swatch.dataset.color;
+                els.colorHexDisplay.innerText = state.themeColor;
+
+                // Auto switch to solid mode if user clicks a color
+                state.bgMode = 'solid';
+                
+                if(state.cards.length > 0) updateCardStylesOnly();
+                else updateUIControls();
+            });
+        });
+
+        // Regenerate specific image
+        els.btnRegenImg.addEventListener('click', () => {
+            if(state.cards.length === 0 || state.bgMode !== 'ai') return;
+            // Generate a random seed to force pollinations to yield a new image
+            state.cards[state.currentIndex].seed = Math.floor(Math.random() * 10000);
+            updateCardStylesOnly(); 
+        });
+
+        // Generate Main Flow
+        els.generateBtn.addEventListener('click', async () => {
+            const topic = els.topicInput.value.trim();
+            if(!topic) {
+                alert("주제를 입력해주세요.");
+                return;
+            }
+
+            state.topic = topic;
+            
+            // UI State change
+            els.emptyState.classList.add('hidden');
+            els.loadingState.classList.remove('hidden');
+            els.carouselArea.style.opacity = '0';
+            els.errorMsg.classList.add('hidden');
+            els.generateBtn.disabled = true;
+
+            try {
+                const generated = await fetchGeminiData();
+                // Attach a random seed for each card to ensure unique pollinations images
+                state.cards = generated.map(c => ({...c, seed: Math.floor(Math.random() * 999999)}));
+                state.currentIndex = 0;
+                
+                renderCarousel();
+                
+                // Show carousel
+                els.loadingState.classList.add('hidden');
+                els.carouselArea.style.opacity = '1';
+                updateUIControls();
+
+            } catch (err) {
+                console.error(err);
+                els.errorMsg.innerText = "생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+                els.errorMsg.classList.remove('hidden');
+                els.loadingState.classList.add('hidden');
+                if(state.cards.length === 0) {
+                    els.emptyState.classList.remove('hidden');
+                } else {
+                    els.carouselArea.style.opacity = '1';
+                }
+            } finally {
+                els.generateBtn.disabled = false;
+            }
+        });
+
+        async function captureCard(index) {
+            const targetEl = document.getElementById(`export-card-${index}`);
+            // Briefly ensure the images are loaded if using AI mode
+            if(state.bgMode === 'ai') {
+                const bgImg = targetEl.querySelector('.card-bg-img');
+                if (bgImg && bgImg.src) {
+                    if (!bgImg.complete) {
+                        await new Promise((resolve) => {
+                            bgImg.onload = resolve;
+                            bgImg.onerror = resolve; // Resolve anyway to proceed
+                        });
+                    }
+                }
+            }
+
+            const canvas = await html2canvas(targetEl, {
+                scale: 1, 
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: state.bgMode === 'solid' ? state.themeColor : '#0f172a'
+            });
+            return canvas;
+        }
+
+        els.btnDlCurrent.addEventListener('click', async () => {
+            if(state.cards.length === 0) return;
+            
+            const originalHTML = els.btnDlCurrent.innerHTML;
+            els.btnDlCurrent.innerHTML = '<i class="ph-bold ph-spinner animate-spin"></i> 처리중...';
+            els.btnDlCurrent.disabled = true;
+
+            try {
+                const canvas = await captureCard(state.currentIndex);
+                canvas.toBlob((blob) => {
+                    window.saveAs(blob, `InstaCard_${state.currentIndex + 1}.png`);
+                });
+            } catch(e) {
+                console.error(e);
+                alert("이미지 저장에 실패했습니다.");
+            } finally {
+                els.btnDlCurrent.innerHTML = originalHTML;
+                els.btnDlCurrent.disabled = false;
+            }
+        });
+
+        els.btnDlAll.addEventListener('click', async () => {
+            if(state.cards.length === 0) return;
+
+            const originalHTML = els.btnDlAll.innerHTML;
+            els.btnDlAll.disabled = true;
+
+            try {
+                const zip = new JSZip();
+                const folder = zip.folder("InstaCards");
+                
+                for(let i=0; i<state.cards.length; i++){
+                    els.btnDlAll.innerHTML = `<i class="ph-bold ph-spinner animate-spin"></i> ${i+1}/${state.cards.length} 장 처리중...`;
+                    const canvas = await captureCard(i);
+                    const base64Data = canvas.toDataURL("image/png").split(',')[1];
+                    folder.file(`InstaCard_${i + 1}.png`, base64Data, {base64: true});
+                }
+
+                els.btnDlAll.innerHTML = '<i class="ph-bold ph-spinner animate-spin"></i> ZIP 생성중...';
+                const zipBlob = await zip.generateAsync({type:"blob"});
+                window.saveAs(zipBlob, "InstaCards_All.zip");
+
+            } catch(e) {
+                console.error(e);
+                alert("전체 다운로드에 실패했습니다.");
+            } finally {
+                els.btnDlAll.innerHTML = originalHTML;
+                els.btnDlAll.disabled = false;
+            }
+        });
+
+    </script>
+</body>
+</html>
